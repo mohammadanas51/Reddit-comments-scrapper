@@ -4,6 +4,7 @@ import fetch from "node-fetch";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
+import "dotenv/config";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,6 +24,52 @@ app.get("/api/health", (req, res) => {
     env: IS_VERCEL ? "vercel" : "local",
   });
 });
+
+// ── Reddit OAuth Logic ────────────────────────────────────────────
+let cachedToken = null;
+let tokenExpiry = 0;
+
+async function getRedditToken() {
+  const { REDDIT_CLIENT_ID: id, REDDIT_CLIENT_SECRET: secret } = process.env;
+
+  if (!id || !secret) {
+    console.error(
+      "❌ ERROR: REDDIT_CLIENT_ID or REDDIT_CLIENT_SECRET is missing!",
+    );
+    return null;
+  }
+
+  // Use cached token if still valid (minus 60s buffer)
+  if (cachedToken && Date.now() < tokenExpiry - 60000) {
+    return cachedToken;
+  }
+
+  try {
+    const auth = Buffer.from(`${id}:${secret}`).toString("base64");
+    const response = await fetch("https://www.reddit.com/api/v1/access_token", {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent":
+          "web:reddit-comment-scraper:v1.0.0 (by /u/anas-scraper-bot)",
+      },
+      body: new URLSearchParams({ grant_type: "client_credentials" }),
+    });
+
+    const data = await response.json();
+    if (data.access_token) {
+      cachedToken = data.access_token;
+      tokenExpiry = Date.now() + data.expires_in * 1000;
+      console.info("🔑 New Reddit OAuth token acquired.");
+      return cachedToken;
+    }
+    console.error("❌ Failed to get Reddit token:", data);
+  } catch (err) {
+    console.error("❌ OAuth Error:", err);
+  }
+  return null;
+}
 
 // ── Visitor Statistics Logic ──────────────────────────────────────
 const IS_VERCEL = process.env.VERCEL || process.env.NOW_REGION;
@@ -88,11 +135,20 @@ function extractComments(children) {
 
 // ── Helper: normalise Reddit URL → .json endpoint ─────────────────
 function toRedditJsonUrl(userUrl) {
-  // Use www.reddit.com but preserve the full path if possible
-  // Some Reddit filters are more aggressive on the shortened /comments/id URLs
-  let cleaned = userUrl.split("?")[0].replace(/\/+$/, "");
-  if (!cleaned.endsWith(".json")) cleaned += ".json";
-  return cleaned.replace(/(old|mobile|pay)\.reddit\.com/, "www.reddit.com");
+  // Extract the subreddit and comment ID
+  // Format: /r/{sub}/comments/{id}
+  const match = userUrl.match(/\/r\/([^/]+)\/comments\/([^/]+)/i);
+  if (match) {
+    return `https://oauth.reddit.com/r/${match[1]}/comments/${match[2]}`;
+  }
+
+  // Fallback for shortened or mobile links
+  const shortMatch = userUrl.match(/\/comments\/([^/]+)/i);
+  if (shortMatch) {
+    return `https://oauth.reddit.com/comments/${shortMatch[1]}`;
+  }
+
+  return null;
 }
 
 // ── POST /api/scrape ──────────────────────────────────────────────
@@ -102,27 +158,37 @@ app.post("/api/scrape", async (req, res) => {
     if (!url) return res.status(400).json({ error: "URL is required" });
 
     const jsonUrl = toRedditJsonUrl(url);
-    console.info(`[${new Date().toISOString()}] 🔍 SCRAPE REQUEST: ${jsonUrl}`);
+    if (!jsonUrl)
+      return res.status(400).json({ error: "Invalid Reddit URL format" });
+
+    console.info(
+      `[${new Date().toISOString()}] 🔍 AUTHENTICATED REQUEST: ${jsonUrl}`,
+    );
+
+    const token = await getRedditToken();
+    if (!token) {
+      return res
+        .status(500)
+        .json({
+          error: "Could not authenticate with Reddit. Check API credentials.",
+        });
+    }
 
     const response = await fetch(jsonUrl, {
       headers: {
-        // Using a mobile iPhone UA - sometimes Reddit is more lenient with mobile users
+        Authorization: `Bearer ${token}`,
         "User-Agent":
-          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-        Accept: "application/json",
-        "Accept-Language": "en-US,en;q=0.9",
-        Referer: "https://www.google.com/",
-        DNT: "1",
+          "web:reddit-comment-scraper:v1.0.0 (by /u/anas-scraper-bot)",
       },
     });
 
     if (!response.ok) {
-      console.error(`❌ Reddit 403/Error: ${response.status} for ${jsonUrl}`);
+      console.error(`❌ Reddit API Error: ${response.status} for ${jsonUrl}`);
       const textHint = await response.text();
       console.log(`📄 Response snippet: ${textHint.substring(0, 200)}`);
       return res
         .status(response.status)
-        .json({ error: `Reddit returned status ${response.status}` });
+        .json({ error: `Reddit API returned status ${response.status}` });
     }
 
     const json = await response.json();
