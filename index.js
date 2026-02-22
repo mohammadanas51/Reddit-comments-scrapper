@@ -78,7 +78,12 @@ function extractComments(children) {
 
 // ── Helper: normalise Reddit URL → .json endpoint ─────────────────
 function toRedditJsonUrl(userUrl) {
-  let cleaned = userUrl.split("?")[0].replace(/\/+$/, "");
+  // Convert URL to use old.reddit.com which is often more lenient for JSON scraping
+  let cleaned = userUrl
+    .replace(/(www\.|mobile\.)?reddit\.com/, "old.reddit.com")
+    .split("?")[0]
+    .replace(/\/+$/, "");
+
   if (!cleaned.endsWith(".json")) cleaned += ".json";
   // raw_json=1 can sometimes help bypass strict bot detection
   return cleaned + "?raw_json=1";
@@ -109,7 +114,7 @@ app.post("/api/scrape", async (req, res) => {
         "Sec-Fetch-Site": "none",
         "Sec-Fetch-User": "?1",
         "Upgrade-Insecure-Requests": "1",
-        Referer: "https://www.reddit.com/",
+        Referer: "https://old.reddit.com/",
       },
     });
 
