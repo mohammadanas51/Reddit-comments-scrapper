@@ -88,17 +88,11 @@ function extractComments(children) {
 
 // ── Helper: normalise Reddit URL → .json endpoint ─────────────────
 function toRedditJsonUrl(userUrl) {
-  // Use www.reddit.com - sometimes old.reddit.com is more restricted for JSON from cloud IPs
-  // Also simplify to /comments/{id}.json format
-  const match = userUrl.match(/\/comments\/([a-z0-9]+)/i);
-  if (match) {
-    return `https://www.reddit.com/comments/${match[1]}.json`;
-  }
-
-  // Fallback to basic normalization
+  // Use www.reddit.com but preserve the full path if possible
+  // Some Reddit filters are more aggressive on the shortened /comments/id URLs
   let cleaned = userUrl.split("?")[0].replace(/\/+$/, "");
   if (!cleaned.endsWith(".json")) cleaned += ".json";
-  return cleaned;
+  return cleaned.replace(/(old|mobile|pay)\.reddit\.com/, "www.reddit.com");
 }
 
 // ── POST /api/scrape ──────────────────────────────────────────────
@@ -112,13 +106,13 @@ app.post("/api/scrape", async (req, res) => {
 
     const response = await fetch(jsonUrl, {
       headers: {
-        // Using a structured User-Agent as recommended by Reddit's API guidelines
+        // Using a mobile iPhone UA - sometimes Reddit is more lenient with mobile users
         "User-Agent":
-          "web:reddit-comment-scraper:v1.0.0 (by /u/anas-scraper-bot)",
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
         Accept: "application/json",
         "Accept-Language": "en-US,en;q=0.9",
-        Referer: "https://www.reddit.com/",
-        Connection: "keep-alive",
+        Referer: "https://www.google.com/",
+        DNT: "1",
       },
     });
 
