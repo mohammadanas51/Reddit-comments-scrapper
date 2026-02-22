@@ -14,6 +14,16 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json());
 
+// ── Health Check (To verify deployment) ───────────────────────────
+const APP_VERSION = "1.0.2-" + new Date().getTime();
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "ok",
+    version: APP_VERSION,
+    env: IS_VERCEL ? "vercel" : "local",
+  });
+});
+
 // ── Visitor Statistics Logic ──────────────────────────────────────
 const IS_VERCEL = process.env.VERCEL || process.env.NOW_REGION;
 const STATS_FILE = IS_VERCEL
@@ -96,7 +106,7 @@ app.post("/api/scrape", async (req, res) => {
     if (!url) return res.status(400).json({ error: "URL is required" });
 
     const jsonUrl = toRedditJsonUrl(url);
-    console.log(`🔍 Scraping started for: ${jsonUrl}`);
+    console.info(`[${new Date().toISOString()}] 🔍 SCRAPE REQUEST: ${jsonUrl}`);
 
     const response = await fetch(jsonUrl, {
       headers: {
