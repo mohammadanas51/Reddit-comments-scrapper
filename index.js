@@ -15,7 +15,10 @@ app.use(cors());
 app.use(express.json());
 
 // ── Visitor Statistics Logic ──────────────────────────────────────
-const STATS_FILE = path.join(__dirname, "stats.json");
+const IS_VERCEL = process.env.VERCEL || process.env.NOW_REGION;
+const STATS_FILE = IS_VERCEL
+  ? path.join("/tmp", "stats.json")
+  : path.join(__dirname, "stats.json");
 
 function getStats() {
   try {
@@ -90,7 +93,11 @@ app.post("/api/scrape", async (req, res) => {
 
     const response = await fetch(jsonUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; RedditScraper/1.0)",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        Accept: "application/json",
+        "Accept-Language": "en-US,en;q=0.9",
+        Referer: "https://www.google.com/",
       },
     });
 
