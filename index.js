@@ -96,6 +96,7 @@ app.post("/api/scrape", async (req, res) => {
     if (!url) return res.status(400).json({ error: "URL is required" });
 
     const jsonUrl = toRedditJsonUrl(url);
+    console.log(`🔍 Scraping started for: ${jsonUrl}`);
 
     const response = await fetch(jsonUrl, {
       headers: {
@@ -119,12 +120,16 @@ app.post("/api/scrape", async (req, res) => {
     });
 
     if (!response.ok) {
+      console.error(`❌ Reddit 403/Error: ${response.status} for ${jsonUrl}`);
+      const textHint = await response.text();
+      console.log(`📄 Response snippet: ${textHint.substring(0, 200)}`);
       return res
         .status(response.status)
         .json({ error: `Reddit returned status ${response.status}` });
     }
 
     const json = await response.json();
+    console.log(`✅ Successfully fetched JSON for: ${jsonUrl}`);
 
     // Extract post info
     const postData = json[0]?.data?.children?.[0]?.data ?? {};
